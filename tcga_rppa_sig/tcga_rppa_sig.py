@@ -16,6 +16,7 @@ import sys
 import logging
 import pkg_resources
 from collections import defaultdict
+from itertools import product
 
 
 EXIT_FILE_IO_ERROR = 1
@@ -198,7 +199,7 @@ def read_sigs(sigs_filename):
             if this_signature not in results[this_sample]:
                 results[this_sample][this_signature] = this_signature_value
             else:
-                exit_with_error("Duplicate signature {} for sample {}".format(this_signature, this_sample))
+                exit_with_error("Duplicate signature {} for sample {}".format(this_signature, this_sample), EXIT_BAD_INPUT)
     logging.info("Number of missing signature values: {}".format(num_missing_sig_values))
     logging.info("Number of valid signature values: {}".format(num_valid_sig_values))
     return sigs_sample_ids, signature_associations, results
@@ -217,7 +218,7 @@ def join_on_sample(rppa, sigs):
                         if sample not in results:
                             results[sample] = {}
                         else:
-                            exit_with_error("Duplicate sample in joined RPPA SIGs data: {}".format(sample))
+                            exit_with_error("Duplicate sample in joined RPPA SIGs data: {}".format(sample), EXIT_BAD_INPUT)
                         if cancer_type not in results[sample]:
                             results[sample][cancer_type] = {'sigs': {}, 'proteins': {}}
                         sig_values = sigs[sample]
@@ -243,8 +244,27 @@ def output_join(output_filename, join_data, cancer_types, sig_names, protein_nam
                 print(",".join(output_row), file=out_file)
         
 
-def get_correlations(rppa_sigs):
-    pass
+def get_correlations(rppa_cancer_types, signature_names, protein_names, join_data):
+    results = {}
+    for cancer_type in rppa_cancer_types:
+        results[cancer_type] = {}
+        for s, p in product(signature_names, protein_names):
+            results[cancer_type][(s, p)] = {'sigs': [], 'proteins': []}
+    for sample, cancer_types in join_data.items():
+        for cancer_type in cancer_types:
+            this_sigs = cancer_types[cancer_type]['sigs']
+            this_proteins = cancer_types[cancer_type]['proteins']
+            if cancer_type in results:
+                for s, p in product(signature_names, protein_names):
+                    this_sig_val = this_sigs[s]
+                    this_protein_val = this_proteins[p]
+                    if this_sig_val is not None and this_protein_val is not None:
+                        results[cancer_type][(s,p)]['sigs'].append(this_sig_val)
+                        results[cancer_type][(s,p)]['proteins'].append(this_protein_val)
+            else:
+                exit_with_error("Unexpected cancer type in joined data: {}".format(cancer_type), EXIT_BAD_INPUT)
+    return results
+
 
 def main():
     "Orchestrate the execution of the program"
@@ -262,10 +282,10 @@ def main():
     logging.info("Number of SIGS samples: {}".format(len(sigs_sample_ids)))
     logging.info("Intersection of RPPA and SIGS samples: {}".format(len(sigs_sample_ids.intersection(rppa_sample_ids))))
     join_data = join_on_sample(rppa, sigs)
+    sig_names = sorted(sigs_associations.keys())
     if options.join:
-        sig_names = sorted(sigs_associations.keys())
         output_join(options.join, join_data, rppa_cancer_types, sig_names, rppa_protein_names)
-    get_correlations(join_data)
+    get_correlations(rppa_cancer_types, sig_names, rppa_protein_names, join_data)
 
 
 # If this script is run from the command line then call the main function.
